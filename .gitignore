@@ -1,2 +1,4 @@
-persistence/
+persistence/**
+!persistence/**/README.md
+!persistence/**/**/README.md
 .env
