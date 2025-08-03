@@ -37,9 +37,9 @@ services:
         find . -type d -exec chmod 750 \{\} \;;
         find . -type f -exec chmod 640 \{\} \;;
         echo "Waiting for Elasticsearch availability";
-        until curl -s --cacert config/certs/ca/ca.crt https://es01:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
+        until curl -s https://es01:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
         echo "Setting kibana_system password";
-        until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://es01:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
+        until curl -s -X POST -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" http://es01:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
         echo "All done!";
       '
     healthcheck:
@@ -47,6 +47,11 @@ services:
       interval: 1s
       timeout: 5s
       retries: 120
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "64k"
+        max-file: "10"
 
   es01:
     depends_on:
@@ -56,24 +61,24 @@ services:
     volumes:
       - ${LOCAL_CERTS}:/usr/share/elasticsearch/config/certs
       - ${LOCAL_ES}:/usr/share/elasticsearch/data
-    ports:
-      - ${ES_PORT}:9200
+    # ports:
+    #   - ${ES_PORT}:9200
     environment:
       - node.name=es01
       - cluster.name=${CLUSTER_NAME}
       - discovery.type=single-node
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - bootstrap.memory_lock=true
-      - xpack.security.enabled=true
-      - xpack.security.http.ssl.enabled=true
-      - xpack.security.http.ssl.key=certs/es01/es01.key
-      - xpack.security.http.ssl.certificate=certs/es01/es01.crt
-      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
-      - xpack.security.transport.ssl.enabled=true
-      - xpack.security.transport.ssl.key=certs/es01/es01.key
-      - xpack.security.transport.ssl.certificate=certs/es01/es01.crt
-      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
-      - xpack.security.transport.ssl.verification_mode=certificate
+      # - xpack.security.enabled=true
+      # - xpack.security.http.ssl.enabled=true
+      # - xpack.security.http.ssl.key=certs/es01/es01.key
+      # - xpack.security.http.ssl.certificate=certs/es01/es01.crt
+      # - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      # - xpack.security.transport.ssl.enabled=true
+      # - xpack.security.transport.ssl.key=certs/es01/es01.key
+      # - xpack.security.transport.ssl.certificate=certs/es01/es01.crt
+      # - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      # - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.license.self_generated.type=${LICENSE}
       - xpack.ml.use_auto_machine_memory_percent=true
       - ES_JAVA_OPTS=-Xms2g -Xmx2g
@@ -86,11 +91,16 @@ services:
       test:
         [
           "CMD-SHELL",
-          "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+          "curl -s http://localhost:9200 | grep -q 'missing authentication credentials'",
         ]
       interval: 10s
       timeout: 10s
       retries: 120
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "64k"
+        max-file: "10"
 
   kibana:
     depends_on:
@@ -104,10 +114,14 @@ services:
       - ${KIBANA_PORT}:5601
     environment:
       - SERVERNAME=kibana
-      - ELASTICSEARCH_HOSTS=https://es01:9200
+      - ELASTICSEARCH_HOSTS=http://es01:9200
       - ELASTICSEARCH_USERNAME=kibana_system
       - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
-      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+      - xpack.fleet.enabled=false
+      - xpack.synthetics.enabled=false
+      - xpack.encryptedSavedObjects.encryptionKey=${KIBANA_ENCRYPTION_KEY}
+      # - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+      # - xpack.security.enabled=true
     command: >
       bash -c '
         echo "Cleaning up chromium-* directories...";
@@ -125,3 +139,23 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "64k"
+        max-file: "10"
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:9.1.0
+    volumes:
+      - ./config/logstash/logstash.yml:/usr/share/logstash/config/logstash.yml
+      - ./config/logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    ports:
+     - "5044:5044"
+    depends_on:
+      - es01
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "64k"
+        max-file: "10"
